@@ -52,9 +52,9 @@ nanobind_add_module(
 )
 
 target_include_directories(
-    tensormidi_bind
-    PRIVATE
-    src/tensormidi/include
+  tensormidi_bind
+  PRIVATE
+  src/tensormidi/include
 )
 
 # Install directive for scikit-build-core
