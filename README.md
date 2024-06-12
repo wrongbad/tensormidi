@@ -49,6 +49,49 @@ Header include path can be dumped with `python -m tensormidi.includes` for easy 
 
 Of course you could just clone this repo and point to `src/tensormidi/include` as well.
 
+### Numba Example
+
+```py
+import numba
+
+@numba.jit
+def durations(midi):
+    n = len(midi)
+    out = np.zeros(n, dtype=np.uint32)
+    off_time = np.zeros((16, 128), dtype=np.uint32)
+    time = 0
+    for i in range(n-1, -1, -1):
+        e = midi[i]
+        if e.type == tensormidi.NOTE_ON:
+            out[i] = time - off_time[e.channel, e.key]
+        elif e.type == tensormidi.NOTE_OFF:
+            off_time[e.channel, e.key] = time
+        time += e.dt
+    return out
+
+fname = os.path.expanduser('~/dev/data/midi/mahler.mid')
+midi = tensormidi.load(fname)
+
+durs = durations(midi)
+
+durs = durs[midi['type'] == tensormidi.NOTE_ON] / 1e6
+midi = midi[midi['type'] == tensormidi.NOTE_ON]
+
+midi[:20]['key'], durs[:20]
+# (array([43, 31, 45, 33, 47, 35, 48, 36, 50, 38, 52, 40, 53, 41, 55, 43, 57,
+#         45, 59, 47], dtype=uint8),
+#  array([0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 ,
+#         0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 , 0.0625 ,
+#         0.08125, 0.08125, 0.08125, 0.08125, 0.08125, 0.08125]))
+```
+
+When you're stuck with for-loops and if-branches for numbers and numpy arrays, numba can bring huge speedups.
+
+Plain python: `250 ms ± 9.01 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)`
+
+With numba: `73.1 µs ± 720 ns per loop (mean ± std. dev. of 7 runs, 10,000 loops each)`
+
+
 ### FluidSynth example
 
 ```py
