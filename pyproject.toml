@@ -7,4 +7,5 @@ name = "tensormidi"
 version = "0.0.1"
 
 dependencies = [
+    "numpy"
 ]
