@@ -8,23 +8,6 @@ Natively supported by [numba](https://numba.pydata.org/) so you can write extrem
 
 Can parse ~10k midi files per second on single CPU core (Ryzen 7950X)
 
-### Quirks
-
-Current `program` is attached to every event (no program_change events in the output)
-
-Fields `key` and `value` are multi-purpose for various channel events
-
-`key`, `value` = `note`, `velocity` also `key`, `value` = `control`, `value`
-
-### C++ Linkage
-
-The C++ library is header only with clean C++ APIs, unbiased by the python bindings.
-
-Header include path can be dumped with `python -m tensormidi.includes` for easy makefile use. 
-
-Of course you could just clone this repo and point to `src/tensormidi/include` as well.
-
-
 
 ```python
 %pip install git+https://github.com/wrongbad/tensormidi.git
@@ -40,19 +23,19 @@ midi = tensormidi.load('bach/catech7.mid')
 print(midi.shape)
 print(midi.dtype)
 for k in midi.dtype.names:
-    print(f'{k} = {midi[4][k]}')
+    print(k, midi[4][k])
 ```
 
     (1440,)
     (numpy.record, {'names': ['dt', 'duration', 'program', 'track', 'type', 'channel', 'key', 'value'], 'formats': ['<u4', '<u4', 'u1', 'u1', 'u1', 'u1', 'u1', 'u1'], 'offsets': [0, 4, 8, 9, 10, 11, 12, 13], 'itemsize': 16, 'aligned': True})
-    dt = 150000
-    duration = 0
-    program = 81
-    track = 2
-    type = 144
-    channel = 1
-    key = 62
-    value = 80
+    dt 150000
+    duration 0
+    program 81
+    track 2
+    type 144
+    channel 1
+    key 62
+    value 80
 
 
 
@@ -66,6 +49,60 @@ print(seconds[-1])
     1440
     79.60461900000054
 
+
+### Output
+
+The track array output is a dense array of numpy `records` (the memory layout is the same as an array of structs in C/C++)
+
+`dt` - microseconds or "ticks" since previous event  
+`duration` - (NOTE_ON only) microseconds or "ticks" until NOTE_OFF  
+`program` - most recent program for the channel (default 0)  
+`track` - track index the event originates from  
+`type` - event type (see below)  
+`channel` - midi channel  
+`key` - multi-purpose (see below)  
+`value` - multi-purpose (see below)
+
+The event `type` can be one of 6 values:
+`NOTE_OFF`
+`NOTE_ON`
+`POLY_AFTERTOUCH`
+`CONTROL`
+`CHAN_AFTERTOUCH`
+`PITCH_BEND`
+
+Notably `program change` is handled internally, populating the `program` field instead.
+
+If `merge_tracks=True` a single track is returned containing all events chronologically. Otherwise a list of arrays is returned, one for each track.
+
+If `microseconds=True` then `dt` field is microseconds since previous event. Otherwise it is ticks. In microseconds mode, only the tracks are returned.
+
+In ticks mode, `load()` returns `tracks, tempos, ticks_per_beat` where tempos is an array of record `(tick, usec_per_beat)`. Note `tick` is since beginning of score, not a delta.
+
+If `notes_only=True` then only `NOTE_ON` and `NOTE_OFF` events are included.
+
+If `durations=True` then the `duration` field is computed, otherwise it contains `0`.
+
+If `remove_note_off=True` then `NOTE_OFF` events are also dropped.
+
+Fields `key` and `value` are multi-purpose for various channel events
+
+type | key | value
+--- | --- | ---
+NOTE_ON | note | velocity
+NOTE_OFF | note | velocity
+POLY_AFTERTOUCH | note | pressure
+CONTROL | index | value
+CHAN_AFTERTOUCH | 0 | pressure
+PITCH_BEND | value&127 | value>>7
+
+### C++ Linkage
+
+The C++ library is header only with clean C++ APIs, unbiased by the python bindings.
+
+Header include path can be dumped with `python -m tensormidi.includes` for easy makefile use.
+
+Of course you could just clone this repo and point to `src/tensormidi/include` as well.
 
 ### Numba Example
 
@@ -157,4 +194,9 @@ for m in midi:
         synth.cc(m.channel, m.key, m.value)
 
 Audio(data=audio[:, 0], rate=samplerate)
+```
+
+
+```python
+!jupyter nbconvert --to markdown readme.ipynb --output ../README.md
 ```

@@ -12,7 +12,12 @@
 namespace nb = nanobind;
 namespace midi = tensormidi;
 
-std::vector<nb::ndarray<nb::numpy, uint8_t>> load_midi(
+std::tuple<
+    std::vector<nb::ndarray<nb::numpy, uint8_t>>, // tracks
+    nb::ndarray<nb::numpy, uint32_t>, // tempos
+    uint32_t // ticks_per_beat
+>
+load_midi(
     std::string filename, 
     bool merge_tracks, 
     bool microseconds, 
@@ -52,7 +57,23 @@ std::vector<nb::ndarray<nb::numpy, uint8_t>> load_midi(
             )
         );
     }
-    return out;
+
+    nb::ndarray<nb::numpy, uint32_t> tempos {nullptr, {0, 2}, nb::handle()};
+    if(!microseconds)
+    {
+        using TempoList = std::vector<midi::Tempo>;
+        TempoList * buf = new TempoList(std::move(f.tempos));
+        nb::capsule deleter(buf, [] (void *p) noexcept {
+            delete (TempoList *) p;
+        });
+        tempos = nb::ndarray<nb::numpy, uint32_t>(
+            reinterpret_cast<uint32_t*>(buf->data()),
+            { buf->size(), 2 },
+            deleter
+        );
+    }
+
+    return {out, tempos, f.ticks_per_beat};
 }
 
 NB_MODULE(tensormidi_bind, m)
