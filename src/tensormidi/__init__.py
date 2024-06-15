@@ -9,13 +9,13 @@ CHAN_AFTERTOUCH = 0xD0
 PITCH_BEND = 0xE0
 
 TRACK_DTYPE = numpy.dtype([
-    ('dt', 'u4'), 
-    ('duration', 'u4'), 
-    ('program', 'u1'), 
-    ('track', 'u1'), 
-    ('type', 'u1'), 
-    ('channel', 'u1'), 
-    ('key', 'u1'), 
+    ('dt', 'u4'),
+    ('duration', 'u4'),
+    ('track', 'u1'),
+    ('program', 'u1'),
+    ('type', 'u1'),
+    ('channel', 'u1'),
+    ('key', 'u1'),
     ('value', 'u1'),
 ], align=True)
 

@@ -1,10 +1,10 @@
 # tensormidi
 
-Extremely fast no-nonsense midi parser, returning dense numpy [structured arrays](https://numpy.org/doc/stable/user/basics.rec.html).
+Extremely fast midi parser returning dense numpy [structured arrays](https://numpy.org/doc/stable/user/basics.rec.html).
 
 Ideal for machine learning pipelines.
 
-Natively supported by [numba](https://numba.pydata.org/) so you can write extremely fast post-processors in python.
+Natively supported by [numba](https://numba.pydata.org/) so you can write optimized post-processors and tokenizers in python.
 
 Can parse ~10k midi files per second on single CPU core (Ryzen 7950X)
 
@@ -52,26 +52,31 @@ print(seconds[-1])
 
 ### Output
 
-The track array output is a dense array of numpy `records` (the memory layout is the same as an array of structs in C/C++)
+The track output is a contiguous array of numpy `record` (the memory layout is the same as an array of structs in C/C++)
 
-`dt` - microseconds or "ticks" since previous event  
-`duration` - (NOTE_ON only) microseconds or "ticks" until NOTE_OFF  
-`program` - most recent program for the channel (default 0)  
-`track` - track index the event originates from  
-`type` - event type (see below)  
-`channel` - midi channel  
-`key` - multi-purpose (see below)  
-`value` - multi-purpose (see below)
+field | dtype | description
+--- | --- | ---
+`dt` | uint32 | microseconds or ticks since previous event
+`duration` | uint32 | microseconds or ticks until matching NOTE_OFF
+`track` | uint8 | track index the event originates from
+`program` | uint8 | most recent program for the channel (default 0)
+`type` | uint8 | event type (see below)
+`channel` | uint8 | midi channel
+`key` | uint8 | multi-purpose (see below)
+`value` | uint8 | multi-purpose (see below)
 
-The event `type` can be one of 6 values:
-`NOTE_OFF`
-`NOTE_ON`
-`POLY_AFTERTOUCH`
-`CONTROL`
-`CHAN_AFTERTOUCH`
-`PITCH_BEND`
+Fields `key` and `value` are multi-purpose for various channel events
 
-Notably `program change` is handled internally, populating the `program` field instead.
+type | key | value
+--- | --- | ---
+NOTE_ON | note | velocity
+NOTE_OFF | note | velocity
+POLY_AFTERTOUCH | note | pressure
+CONTROL | index | value
+CHAN_AFTERTOUCH | 0 | pressure
+PITCH_BEND | value&127 | value>>7
+
+Notably `PROGRAM_CHANGE` is handled internally, populating the `program` field instead. This could become optional behavior - file an issue if you want it.
 
 If `merge_tracks=True` a single track is returned containing all events chronologically. Otherwise a list of arrays is returned, one for each track.
 
@@ -85,16 +90,6 @@ If `durations=True` then the `duration` field is computed, otherwise it contains
 
 If `remove_note_off=True` then `NOTE_OFF` events are also dropped.
 
-Fields `key` and `value` are multi-purpose for various channel events
-
-type | key | value
---- | --- | ---
-NOTE_ON | note | velocity
-NOTE_OFF | note | velocity
-POLY_AFTERTOUCH | note | pressure
-CONTROL | index | value
-CHAN_AFTERTOUCH | 0 | pressure
-PITCH_BEND | value&127 | value>>7
 
 ### C++ Linkage
 
@@ -108,7 +103,7 @@ Of course you could just clone this repo and point to `src/tensormidi/include` a
 
 Note: you can get durations by passing durations=True to tensormidi.load
 
-This mainly serves to show how naturally you can write highly optimized code on the tensormidi output records.
+This just shows how easily you can write optimized post processing logic.
 
 
 ```python
@@ -199,4 +194,9 @@ Audio(data=audio[:, 0], rate=samplerate)
 
 ```python
 !jupyter nbconvert --to markdown readme.ipynb --output ../README.md
+```
+
+
+```python
+
 ```

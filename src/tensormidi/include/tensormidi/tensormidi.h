@@ -7,26 +7,28 @@
 
 namespace tensormidi {
 
+using u8 = uint8_t;
+
 bool err(char const* msg) { throw std::runtime_error(msg); }
 
 struct Stream
 {
-    uint8_t const* begin;
-    uint8_t const* end;
-    uint8_t const* cursor = begin;
+    u8 const* begin;
+    u8 const* end;
+    u8 const* cursor = begin;
 
-    uint8_t const* take(size_t n)
+    u8 const* take(size_t n)
     {
-        uint8_t const* out = cursor;
+        u8 const* out = cursor;
         (cursor += n) <= end || err("EOF");
         return out;
     }
-    uint8_t peek() const { return *cursor; }
+    u8 peek() const { return *cursor; }
     size_t remain() const { return end - cursor; }
 };
 
 template<class T>
-T big_endian(uint8_t const* bytes)
+T big_endian(u8 const* bytes)
 {
     T x = 0;
     for(int i=0 ; i<sizeof(T) ; i++)
@@ -40,7 +42,7 @@ T variable_int(Stream & src)
     T x = 0;
     for(int i=0 ; i<sizeof(T) ; i++)
     {
-        uint8_t b = *src.take(1);
+        u8 b = *src.take(1);
         x = (x << 7) | (b & 0x7f);
         if(b < 0x80) return x;
     }
@@ -49,7 +51,7 @@ T variable_int(Stream & src)
 
 struct HeadChecker
 {
-    HeadChecker(uint8_t const* data, char const* type)
+    HeadChecker(u8 const* data, char const* type)
     {
         std::strncmp((char const*)data, type, 4)==0 || err("wrong chunk type");
     }
@@ -59,7 +61,7 @@ struct ChunkHead
 {
     HeadChecker enforcer;
     uint32_t length = 0;
-    uint8_t const* data = nullptr;
+    u8 const* data = nullptr;
     
     ChunkHead(Stream & src, char const* type)
     :   enforcer(src.take(4), type),
@@ -79,13 +81,13 @@ struct Event
 {
     uint32_t dt;
     uint32_t duration;
-    uint8_t program;
-    uint8_t track;
-    uint8_t type;
-    uint8_t channel;
-    uint8_t key;
-    uint8_t value;
-    uint8_t _reserved[2];
+    u8 track;
+    u8 program;
+    u8 type;
+    u8 channel;
+    u8 key;
+    u8 value;
+    u8 _reserved[2];
 
     enum Type
     {
@@ -119,18 +121,18 @@ struct Track
 
         Stream midi { head.data, head.data + head.length };
 
-        uint8_t status = 0;
-        uint8_t program[16] = {0};
+        u8 status = 0;
+        u8 program[16] = {0};
         size_t time = 0;
         size_t last_time = 0;
         int type = 0, chan = 0;
 
-        auto add_event = [&] (uint8_t type, uint8_t chan, uint8_t key, uint8_t val) {
+        auto add_event = [&] (u8 type, u8 chan, u8 key, u8 val) {
             events.push_back({
                 uint32_t(time-last_time),
                 0, // duration
+                u8(track),
                 program[chan],
-                uint8_t(track),
                 type,
                 chan,
                 key,
@@ -139,30 +141,30 @@ struct Track
             last_time = time;
         };
         // clip: tolerate some buggy files 
-        auto clip = [&] (uint8_t x) { return std::min<uint8_t>(x, 127); };
-        auto check = [&] (uint8_t x) { return x<128 ? x : err("data byte > 127"); };
+        auto clip = [&] (u8 x) { return std::min<u8>(x, 127); };
+        auto check = [&] (u8 x) { return x<128 ? x : err("data byte > 127"); };
 
         while(midi.remain())
         {
             // track abs time to handle dropped events
             time += variable_int<uint32_t>(midi);
 
-            uint8_t const* msg_begin = midi.cursor;
-            uint8_t peek = midi.peek();
+            u8 const* msg_begin = midi.cursor;
+            u8 peek = midi.peek();
 
             if( peek >= 0xF8 )
             {
                 midi.take(1); // consume peek
                 if( peek == 0xFF ) // META
                 {
-                    uint8_t mtype = *midi.take(1);
+                    u8 mtype = *midi.take(1);
                     if( mtype == 0x2F ) // END_OF_TRACK
                     {
                         break;
                     }
 
                     uint32_t mlen = variable_int<uint32_t>(midi);
-                    uint8_t const* d = midi.take(mlen);
+                    u8 const* d = midi.take(mlen);
                     if( mtype == 0x51 ) // SET_TEMPO
                     {
                         if(tempos.size()==0 && time>0)
@@ -179,9 +181,9 @@ struct Track
                 if( peek == 0xF3 ) { midi.take(1); }
                 else if( peek == 0xF2 ) { midi.take(2); }
                 else if( peek == 0xF1 ) { midi.take(1); }
-                else if( peek == 0xF0 ) // SYSEX
+                else if( peek == Event::SYSEX_BEGIN )
                 {
-                    while( *midi.take(1) != 0xF7 ) {}
+                    while( *midi.take(1) != Event::SYSEX_END ) {}
                 }
                 continue;
             }
@@ -194,7 +196,7 @@ struct Track
             if( type == Event::NOTE_OFF ||
                 type == Event::NOTE_ON )
             {
-                uint8_t const* m = midi.take(2);
+                u8 const* m = midi.take(2);
                 if(type == Event::NOTE_ON && m[1] == 0)
                     type = Event::NOTE_OFF;
                 add_event(type, chan, check(m[0]), clip(m[1]));
@@ -203,19 +205,19 @@ struct Track
                 type == Event::POLY_AFTERTOUCH ||
                 type == Event::PITCH_BEND )
             {
-                uint8_t const* m = midi.take(2);
+                u8 const* m = midi.take(2);
                 if(!notes_only)
                     add_event(type, chan, check(m[0]), clip(m[1]));
             }
             else if( type == Event::CHAN_AFTERTOUCH )
             {
-                uint8_t const* m = midi.take(1);
+                u8 const* m = midi.take(1);
                 if(!notes_only)
                     add_event(type, chan, 0, clip(m[1]));
             }
             else if( type == Event::PROGRAM )
             {
-                uint8_t const* m = midi.take(1);
+                u8 const* m = midi.take(1);
                 if(m[0] < 128) program[chan] = m[0];
             }
         }
