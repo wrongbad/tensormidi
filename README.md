@@ -69,9 +69,31 @@ torch.tensor(midi.time)
 
 
 
-### Output
+## API
 
-The track output is a contiguous array of numpy `record` (the memory layout is the same as an array of structs in C/C++)
+```py
+def load(
+    filename: str,              # path to the midi file
+    merge_tracks: bool = True,  # merge all tracks into 1
+    seconds: bool = True,       # convert times to seconds (include tempo)
+    notes_only: bool = True,    # keep only NOTE_ON and NOTE_OFF events
+    default_program: int = 0,   # fallback when track doesn't specify program
+):
+```
+
+#### returns
+
+If `seconds == True` returns `tracks`
+
+Else returns `tracks, tempos, ticks_per_beat`
+
+#### tracks
+
+If `merge_tracks == True` then `tracks` is a single numpy array of event records.
+
+Else, `tracks` is a list of numpy arrays of event records.
+
+Numpy record array memory layout is the same as an array of structs in C/C++.
 
 field | dtype | description
 --- | --- | ---
@@ -94,18 +116,24 @@ CONTROL | index | value
 CHAN_AFTERTOUCH | 0 | pressure
 PITCH_BEND | value&127 | value>>7
 
-Notably `PROGRAM_CHANGE` is handled internally, populating the `program` field on every event.
+`PROGRAM_CHANGE` events are consumed internally, populating the `program` field on later events.
 
-If `merge_tracks=True` a single track is returned containing all events chronologically. Otherwise a list of arrays is returned, one for each track.
+#### tempos
 
-If `seconds=True` then `time` field is seconds. Otherwise it is midi-ticks. In seconds mode, only the tracks are returned.
+Tempos is a record array specifying tempo changes throughout the song
 
-In ticks mode, `load()` returns `tracks, tempos, ticks_per_beat` where tempos is an array of record `(tick, sec_per_beat)`. Note `tick` is since beginning of score, not a delta.
+field | dtype | description
+--- | --- | ---
+`tick` | uint64 | ticks since beginning of song when change takes effect
+`sec_per_beat` | float64 | new tempo, in seconds per beat
 
-If `notes_only=True` then only `NOTE_ON` and `NOTE_OFF` events are included.
+#### ticks_per_beat
 
+Scalar value indicating ticks per beat for the whole file
 
-### C++ Linkage
+For example, ticks per second is `ticks_per_beat / sec_per_beat` where `sec_per_beat` comes from latest tempo event.
+
+## C++ Linkage
 
 The C++ library is header only with clean C++ APIs, unbiased by the python bindings.
 
@@ -113,7 +141,7 @@ Header include path can be dumped with `python -m tensormidi.includes` for easy 
 
 Of course you could just clone this repo and point to `src/tensormidi/include` as well.
 
-### Numba Example
+## Numba Example
 
 Numpy record arrays work perfectly with numba.
 
@@ -169,7 +197,7 @@ print(durs[:20])
      0.13 0.13 0.13 0.13 0.26 0.13]
 
 
-### FluidSynth Example
+## FluidSynth Example
 
 
 ```python
