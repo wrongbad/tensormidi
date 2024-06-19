@@ -16,38 +16,57 @@ Can parse ~10k midi files per second on single CPU core (Ryzen 7950X)
 
 ```python
 import tensormidi
-import numpy as np
 
 midi = tensormidi.load('bach/catech7.mid')
 
-print(midi.shape)
-print(midi.dtype)
+print(f'{midi.shape=}')
+print(f'{midi.dtype=}')
 for k in midi.dtype.names:
-    print(k, midi[4][k])
+    print(k, midi[0][k])
 ```
 
-    (1440,)
-    (numpy.record, {'names': ['dt', 'duration', 'program', 'track', 'type', 'channel', 'key', 'value'], 'formats': ['<u4', '<u4', 'u1', 'u1', 'u1', 'u1', 'u1', 'u1'], 'offsets': [0, 4, 8, 9, 10, 11, 12, 13], 'itemsize': 16, 'aligned': True})
-    dt 150000
-    duration 0
-    program 81
-    track 2
+    midi.shape=(1440,)
+    midi.dtype=dtype((numpy.record, [('time', '<f8'), ('track', 'u1'), ('program', 'u1'), ('channel', 'u1'), ('type', 'u1'), ('key', 'u1'), ('value', 'u1')]), align=True)
+    time 1.2
+    track 4
+    program 19
+    channel 3
     type 144
-    channel 1
-    key 62
+    key 43
     value 80
 
 
+All your favorite array-level ops just work
+
 
 ```python
-# numpy.recarray allows pythonic field access via attributes
-seconds = np.cumsum(midi.dt / 1e6)
-print(len(seconds))
-print(seconds[-1])
+import numpy as np
+
+notes = np.sum(midi.type == tensormidi.NOTE_ON)
+length = np.max(midi.time)
+print(f'{notes=}')
+print(f'{length=}')
 ```
 
-    1440
-    79.60461900000054
+    notes=720
+    length=79.60473141666768
+
+
+Field accessors are normal numpy array views, understood by other libraries
+
+
+```python
+import torch
+
+torch.tensor(midi.time)
+```
+
+
+
+
+    tensor([ 1.2000,  1.2000,  1.2000,  ..., 79.6047, 79.6047, 79.6047],
+           dtype=torch.float64)
+
 
 
 ### Output
@@ -56,12 +75,11 @@ The track output is a contiguous array of numpy `record` (the memory layout is t
 
 field | dtype | description
 --- | --- | ---
-`dt` | uint32 | microseconds or ticks since previous event
-`duration` | uint32 | microseconds or ticks until matching NOTE_OFF
+`time` | float64 | seconds or ticks since beginning of song 
 `track` | uint8 | track index the event originates from
-`program` | uint8 | most recent program for the channel (default 0)
-`type` | uint8 | event type (see below)
+`program` | uint8 | most recent program for the channel (or `default_program`)
 `channel` | uint8 | midi channel
+`type` | uint8 | event type (see below)
 `key` | uint8 | multi-purpose (see below)
 `value` | uint8 | multi-purpose (see below)
 
@@ -76,19 +94,15 @@ CONTROL | index | value
 CHAN_AFTERTOUCH | 0 | pressure
 PITCH_BEND | value&127 | value>>7
 
-Notably `PROGRAM_CHANGE` is handled internally, populating the `program` field instead. This could become optional behavior - file an issue if you want it.
+Notably `PROGRAM_CHANGE` is handled internally, populating the `program` field on every event.
 
 If `merge_tracks=True` a single track is returned containing all events chronologically. Otherwise a list of arrays is returned, one for each track.
 
-If `microseconds=True` then `dt` field is microseconds since previous event. Otherwise it is ticks. In microseconds mode, only the tracks are returned.
+If `seconds=True` then `time` field is seconds. Otherwise it is midi-ticks. In seconds mode, only the tracks are returned.
 
-In ticks mode, `load()` returns `tracks, tempos, ticks_per_beat` where tempos is an array of record `(tick, usec_per_beat)`. Note `tick` is since beginning of score, not a delta.
+In ticks mode, `load()` returns `tracks, tempos, ticks_per_beat` where tempos is an array of record `(tick, sec_per_beat)`. Note `tick` is since beginning of score, not a delta.
 
 If `notes_only=True` then only `NOTE_ON` and `NOTE_OFF` events are included.
-
-If `durations=True` then the `duration` field is computed, otherwise it contains `0`.
-
-If `remove_note_off=True` then `NOTE_OFF` events are also dropped.
 
 
 ### C++ Linkage
@@ -101,9 +115,14 @@ Of course you could just clone this repo and point to `src/tensormidi/include` a
 
 ### Numba Example
 
-Note: you can get durations by passing durations=True to tensormidi.load
+Numpy record arrays work perfectly with numba.
 
-This just shows how easily you can write optimized post processing logic.
+Here is an example of how you can compute note durations with simple code that is also very fast.
+
+
+```python
+%pip install numba
+```
 
 
 ```python
@@ -112,16 +131,14 @@ import numba
 # @numba.jit
 def durations(midi):
     n = len(midi)
-    out = np.zeros(n, dtype=np.uint32)
-    off_time = np.zeros((16, 128), dtype=np.uint32)
-    time = 0
+    out = np.zeros(n, dtype=np.float32)
+    off_time = np.zeros((16, 128), dtype=np.float64)
     for i in range(n-1, -1, -1):
         e = midi[i]
         if e.type == tensormidi.NOTE_ON:
-            out[i] = time - off_time[e.channel, e.key]
+            out[i] = off_time[e.channel, e.key] - e.time
         elif e.type == tensormidi.NOTE_OFF:
-            off_time[e.channel, e.key] = time
-        time += e.dt
+            off_time[e.channel, e.key] = e.time
     return out
 
 midi = tensormidi.load('bach/catech7.mid')
@@ -134,7 +151,7 @@ jitdurations = numba.jit(durations)
 %timeit durs = jitdurations(midi)
 
 durs = jitdurations(midi)
-durs = durs[midi.type == tensormidi.NOTE_ON] / 1e6
+durs = durs[midi.type == tensormidi.NOTE_ON]
 notes = midi[midi.type == tensormidi.NOTE_ON]
 
 print("")
@@ -143,12 +160,12 @@ print(durs[:20])
 ```
 
     pure python
-    9.07 ms ± 30 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
+    8.87 ms ± 79.1 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
     with numba
-    2.5 µs ± 6.34 ns per loop (mean ± std. dev. of 7 runs, 100,000 loops each)
+    2.43 µs ± 1.98 ns per loop (mean ± std. dev. of 7 runs, 100,000 loops each)
     
-    [43 43 43 43 62 64 66 67 82 72 45 45 45 45 69 67 66 67 81 64]
-    [1.05 1.05 1.05 1.05 0.13 0.13 0.13 0.86 0.26 0.78 1.05 1.05 1.05 1.05
+    [43 43 43 43 62 64 66 67 82 45 45 45 45 72 69 67 66 67 81 64]
+    [1.05 1.05 1.05 1.05 0.13 0.13 0.13 0.86 0.26 1.05 1.05 1.05 1.05 0.78
      0.13 0.13 0.13 0.13 0.26 0.13]
 
 
@@ -169,12 +186,14 @@ samplerate = 44100
 synth = fluidsynth.Synth(samplerate=samplerate)
 synth.sfload('/usr/share/sounds/sf2/FluidR3_GM.sf2')
 
+midi = tensormidi.load('bach/catech7.mid')
 audio = np.zeros((0,2), np.int16)
 
 for m in midi:
-    dt = m.dt / 1e6 # microseconds to seconds
-    if dt:
-        nsamp = int(samplerate * dt)
+    nsamp = int(samplerate * m.time)
+    if nsamp > audio.shape[0]:
+        # make the audio engine catch up to current time
+        nsamp -= audio.shape[0]
         chunk = synth.get_samples(nsamp).reshape(-1, 2)
         audio = np.concatenate((audio, chunk))
     
@@ -194,9 +213,4 @@ Audio(data=audio[:, 0], rate=samplerate)
 
 ```python
 !jupyter nbconvert --to markdown readme.ipynb --output ../README.md
-```
-
-
-```python
-
 ```

@@ -9,44 +9,41 @@ CHAN_AFTERTOUCH = 0xD0
 PITCH_BEND = 0xE0
 
 TRACK_DTYPE = numpy.dtype([
-    ('dt', 'u4'),
-    ('duration', 'u4'),
+    ('time', 'f8'),
     ('track', 'u1'),
     ('program', 'u1'),
-    ('type', 'u1'),
     ('channel', 'u1'),
+    ('type', 'u1'),
     ('key', 'u1'),
     ('value', 'u1'),
 ], align=True)
 
 TEMPO_DTYPE = numpy.dtype([
-    ('tick', 'u4'),
-    ('usec_per_beat', 'u4')
+    ('tick', 'u8'),
+    ('sec_per_beat', 'f8')
 ])
 
 
 def load(
     filename,
     merge_tracks = True,
-    microseconds = True,
+    seconds = True,
     notes_only = True,
-    durations = False,
-    remove_note_off = False,
+    default_program = 0,
 ):
     tracks, tempos, tick_per_beat = _ext.load_midi(
         filename, 
         merge_tracks=merge_tracks,
-        microseconds=microseconds,
+        seconds=seconds,
         notes_only=notes_only, 
-        durations=durations,
-        remove_note_off=remove_note_off,
+        default_program=default_program,
     )
     tracks = [
         x.view(TRACK_DTYPE)[:, 0].view(numpy.recarray)
         for x in tracks
     ]
     tracks = tracks[0] if merge_tracks else tracks
-    if microseconds:
+    if seconds:
         return tracks
     else:
         tempos = tempos.view(TEMPO_DTYPE)[:,0].view(numpy.recarray)

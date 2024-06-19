@@ -25,6 +25,7 @@ int main(int argc, char ** argv)
     try
     {
         File midi { src };
+        midi.merge_tracks();
     }
     catch(std::exception const& e)
     {
